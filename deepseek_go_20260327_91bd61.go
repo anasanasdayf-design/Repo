@@ -621,46 +621,46 @@ func randID(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// ── daemonization functions ──
+// ── daemonization function ──
 
 func daemonize() {
-	// Fork the process
-	if os.Getppid() != 1 {
-		// Create a new process
-		args := os.Args
-		env := os.Environ()
-		
-		// Start the process in background
-		procAttr := &os.ProcAttr{
-			Dir:   "/",
-			Env:   env,
-			Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-			Sys:   &syscall.SysProcAttr{Setsid: true},
-		}
-		
-		// Fork the process
-		pid, err := os.StartProcess(args[0], args, procAttr)
-		if err != nil {
-			os.Exit(1)
-		}
-		
-		// Parent process exits
-		pid.Release()
-		os.Exit(0)
+	// Check if we're already a daemon (parent process would have PPID 1)
+	if os.Getppid() == 1 {
+		return
 	}
 	
-	// Child process continues
+	// Fork the process
+	args := os.Args
+	env := os.Environ()
 	
-	// Change file mode mask
+	// Start the process in background
+	procAttr := &os.ProcAttr{
+		Dir:   "/",
+		Env:   env,
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+		Sys:   &syscall.SysProcAttr{Setsid: true},
+	}
+	
+	// Fork the process
+	pid, err := os.StartProcess(args[0], args, procAttr)
+	if err != nil {
+		os.Exit(1)
+	}
+	
+	// Parent process exits immediately
+	pid.Release()
+	os.Exit(0)
+}
+
+// ── entry ──
+
+func main() {
+	// Automatically daemonize when run
+	daemonize()
+	
+	// Now we're in the daemon process
+	// Close standard file descriptors and redirect to /dev/null
 	syscall.Umask(0)
-	
-	// Create a new session
-	syscall.Setsid()
-	
-	// Close standard file descriptors
-	syscall.Close(0)
-	syscall.Close(1)
-	syscall.Close(2)
 	
 	// Redirect stdin, stdout, stderr to /dev/null
 	devNull, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
@@ -671,17 +671,8 @@ func daemonize() {
 		devNull.Close()
 	}
 	
-	// Change working directory
+	// Change working directory to root
 	os.Chdir("/")
-}
-
-// ── entry ──
-
-func main() {
-	// Check if we should daemonize
-	if len(os.Args) > 1 && os.Args[1] == "-d" {
-		daemonize()
-	}
 	
 	// Create a channel to handle signals
 	sigChan := make(chan os.Signal, 1)
